@@ -1,0 +1,234 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2709
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;\f1\fmodern\fcharset0 Courier;}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;}
+{\*\expandedcolortbl;;\cssrgb\c0\c0\c0;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 [root@master-1.s061354.slurm.io /home/s061354]# cat srv/slurm/deployment-test.log\
+Hello, Mackleroy!\
+Hello, Mackleroy!\
+Hello, Mackleroy!\
+\
+[root@master-1.s061354.slurm.io /home/s061354]# cat configmap_1.21.yaml\
+---\
+apiVersion: v1\
+kind: ConfigMap\
+metadata:\
+  name: configmap-1.21\
+data:\
+  default.conf: |\
+    server \{\
+        listen       80 default_server;\
+        server_name  _;\
+\
+        default_type text/plain;\
+\
+        location / \{\
+            return 200 'I am 1.21\\n';\
+        \}\
+    \}\
+...\
+\
+\
+[root@master-1.s061354.slurm.io /home/s061354]# cat configmap_1.22.yaml\
+---\
+apiVersion: v1\
+kind: ConfigMap\
+metadata:\
+  name: configmap-1.22\
+data:\
+  default.conf: |\
+    server \{\
+        listen       80 default_server;\
+        server_name  _;\
+\
+        default_type text/plain;\
+\
+        location / \{\
+            return 200 'I am 1.22\\n';\
+        \}\
+    \}\
+...\
+\
+\
+[root@master-1.s061354.slurm.io /home/s061354]# cat crongob_jessie.yaml\
+---\
+apiVersion: batch/v1\
+kind: CronJob\
+metadata:\
+  name: jessie\
+spec:\
+  schedule: "*/2 9-18 * * 1-5"\
+  concurrencyPolicy: Allow\
+  jobTemplate:\
+    spec:\
+      backoffLimit: 2\
+      activeDeadlineSeconds: 20\
+      template:\
+        spec:\
+          containers:\
+          - name: hello\
+            image: debian:jessie\
+            args:\
+            - /bin/sh\
+            - -c\
+            - date\
+          restartPolicy: Never\
+\
+\
+[root@master-1.s061354.slurm.io /home/s061354]# cat deployment_jessie.yaml\
+---\
+apiVersion: apps/v1\
+kind: Deployment\
+metadata:\
+  name: deployment-test\
+spec:\
+  replicas: 1\
+  selector:\
+    matchLabels:\
+      app: jessie\
+  template:\
+    metadata:\
+      labels:\
+        app: jessie\
+    spec:\
+      containers:\
+      - image: debian:jessie\
+        name: nginx\
+        env:\
+        - name: USERNAME\
+          value: Mackleroy\
+        command:\
+          - sh\
+          - -c\
+          - 'while true; do echo "Hello, $\{USERNAME\}!"; sleep 10; done'\
+...\
+\
+\
+\
+[root@master-1.s061354.slurm.io /home/s061354]# cat ingress-test-1.yaml\
+apiVersion: apps/v1\
+kind: Deployment\
+metadata:\
+  name: ingress-test-1\
+spec:\
+  replicas: 1\
+  selector:\
+    matchLabels:\
+      app: app-ingress-test-1\
+  template:\
+    metadata:\
+      labels:\
+        app: app-ingress-test-1\
+    spec:\
+      containers:\
+      - image: nginx:1.21\
+        name: nginx\
+        ports:\
+        - containerPort: 80\
+        volumeMounts:\
+        - name: config\
+          mountPath: /etc/nginx/conf.d/\
+      volumes:\
+      - name: config\
+        configMap:\
+          name: configmap-1.21\
+\
+\
+[root@master-1.s061354.slurm.io /home/s061354]# cat ingress-test-2.yaml\
+apiVersion: apps/v1\
+kind: Deployment\
+metadata:\
+  name: ingress-test-2\
+spec:\
+  replicas: 1\
+  selector:\
+    matchLabels:\
+      app: app-ingress-test-2\
+  template:\
+    metadata:\
+      labels:\
+        app: app-ingress-test-2\
+    spec:\
+      containers:\
+      - image: nginx:1.22\
+        name: nginx\
+        ports:\
+        - containerPort: 80\
+        volumeMounts:\
+        - name: config\
+          mountPath: /etc/nginx/conf.d/\
+      volumes:\
+      - name: config\
+        configMap:\
+          name: configmap-1.22\
+\
+[root@master-1.s061354.slurm.io /home/s061354]# cat service-ingress-test-1.yaml\
+apiVersion: v1\
+kind: Service\
+metadata:\
+  name: ingress-test-1\
+spec:\
+  ports:\
+  - port: 80\
+    targetPort: 80\
+  selector:\
+    app: app-ingress-test-1\
+  type: ClusterIP\
+\
+\
+[root@master-1.s061354.slurm.io /home/s061354]# cat service-ingress-test-2.yaml\
+apiVersion: v1\
+kind: Service\
+metadata:\
+  name: ingress-test-2\
+spec:\
+  ports:\
+  - port: 80\
+    targetPort: 80\
+  selector:\
+    app: app-ingress-test-2\
+  type: NodePort\
+\
+[root@master-1.s061354.slurm.io /home/s061354]# cat ingress.yaml\
+apiVersion: networking.k8s.io/v1\
+kind: Ingress\
+metadata:\
+  name: my-ingress-nginx\
+  annotations:\
+    kubernetes.io/ingress.class: "nginx"\
+spec:\
+  rules:\
+  - host: ingress-test.s061354.edu.slurm.io\
+    http:\
+      paths:\
+      - pathType: Prefix\
+        path: "/1"\
+        backend:\
+          service:\
+            name: ingress-test-1\
+            port:\
+              number: 80\
+      - pathType: Prefix\
+        path: "/2"\
+        backend:\
+          service:\
+            name: ingress-test-2\
+            port:\
+              number: 80\
+\
+\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs26 \cf0 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2     cat << EOF | kubectl apply -f -\
+        apiVersion: rbac.authorization.k8s.io/v1\
+        kind: Role\
+        metadata:\
+          name: kube-ci\
+        rules:\
+        - apiGroups: ["", "extensions", "apps", "batch", "events", "certmanager.k8s.io", "cert-manager.io", "monitoring.coreos.com"]\
+          resources: ["*"]\
+          verbs: ["*"]\
+}

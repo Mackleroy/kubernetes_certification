@@ -1,0 +1,160 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2709
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 [root@master-1.s061354.slurm.io /home/s061354/k8s_dev_cert_project]# cat .gitlab-ci.yml\
+variables:\
+  K8S_API_URL: https://172.17.88.2:6443\
+\
+stages:\
+  - build\
+  - push\
+  - deploy\
+\
+build:\
+  stage: build\
+  script:\
+    - docker build -t $CI_REGISTRY/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME:$CI_COMMIT_REF_SLUG.$CI_PIPELINE_ID .\
+\
+push:\
+  stage: push\
+  before_script:\
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY\
+  script:\
+    - docker push $CI_REGISTRY/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME:$CI_COMMIT_REF_SLUG.$CI_PIPELINE_ID\
+\
+deploy:\
+  stage: deploy\
+  image: centosadmin/kubernetes-helm:3.3.4\
+  environment:\
+    name: production\
+  resource_group: deploy_production\
+  script:\
+    - kubectl config set-cluster k8s --insecure-skip-tls-verify=true --server=$K8S_API_URL\
+    - kubectl config set-credentials ci --token=$K8S_CI_TOKEN\
+    - kubectl config set-context ci --cluster=k8s --user=ci\
+    - kubectl config use-context ci\
+    - helm upgrade --install $CI_PROJECT_PATH_SLUG .helm\
+        --set image=$CI_REGISTRY/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME\
+        --set imageTag=$CI_COMMIT_REF_SLUG.$CI_PIPELINE_ID\
+        --debug\
+        --timeout 180s\
+        --atomic\
+\
+\
+[root@master-1.s061354.slurm.io /home/s061354/k8s_dev_cert_project/.helm]# cat values.yaml\
+deployment:\
+  name: my-deployment\
+  replicas: 1\
+  app_labels: my-app\
+  app:\
+    name: flask\
+    image_name: flask_app\
+    container_port: 80\
+  redis:\
+    image_repository: docker.io/bitnami/redis:7.2.4-debian-11-r0\
+    image_name: redis-container\
+    port: 6379\
+\
+service:\
+  name: my-service\
+  port: 800\
+\
+ingress:\
+  name: my-ingress\
+  host: flask.s061354.edu.slurm.io\
+\
+pvc:\
+  redis_name: redis\
+  redis_size: 2Mi\
+\
+[root@master-1.s061354.slurm.io /home/s061354/k8s_dev_cert_project/.helm]# cat Chart.yaml\
+name: myapp\
+version: 1\
+\
+[root@master-1.s061354.slurm.io /home/s061354/k8s_dev_cert_project/.helm/templates]# cat deployment.yaml\
+---\
+apiVersion: apps/v1\
+kind: Deployment\
+metadata:\
+  name: \{\{ .Values.deployment.name \}\}\
+spec:\
+  replicas: \{\{ .Values.deployment.replicas \}\}\
+  selector:\
+    matchLabels:\
+      app: \{\{ .Values.deployment.app_labels \}\}\
+  template:\
+    metadata:\
+      labels:\
+        app: \{\{ .Values.deployment.app_labels \}\}\
+    spec:\
+      containers:\
+      - image: \{\{ .Values.deployment.app.image_name \}\}\
+        name: \{\{ .Values.deployment.app.name \}\}\
+        ports:\
+        - containerPort: \{\{ .Values.deployment.app.container_port \}\}\
+      - image: \{\{ .Values.deployment.redis.image_repository \}\}\
+        name: \{\{ .Values.deployment.redis.image_name \}\}\
+        ports:\
+        - containerPort: \{\{ .Values.deployment.redis.port \}\}\
+...\
+\
+\
+[root@master-1.s061354.slurm.io /home/s061354/k8s_dev_cert_project/.helm/templates]# cat ingress.yaml\
+apiVersion: networking.k8s.io/v1\
+kind: Ingress\
+metadata:\
+  name: \{\{ .Values.ingress.name \}\}\
+spec:\
+  rules:\
+  - host: \{\{ .Values.ingress.host \}\}\
+    http:\
+      paths:\
+      - pathType: Prefix\
+        path: "/"\
+        backend:\
+          service:\
+            name: \{\{ .Values.service.name \}\}\
+            port:\
+              number: \{\{ .Values.service.port \}\}\
+\
+\
+[root@master-1.s061354.slurm.io /home/s061354/k8s_dev_cert_project/.helm/templates]# cat service.yaml\
+apiVersion: v1\
+kind: Service\
+metadata:\
+  name: \{\{ .Values.service.name \}\}\
+spec:\
+  ports:\
+  - port: \{\{ .Values.service.port \}\}\
+    targetPort: \{\{ .Values.deployment.container_port\}\}\
+  selector:\
+    app: \{\{ .Values.deployment.app_labels \}\}\
+  type: ClusterIP\
+\
+[root@master-1.s061354.slurm.io /home/s061354]# cat role.yaml\
+apiVersion: rbac.authorization.k8s.io/v1\
+kind: Role\
+metadata:\
+  name: kube-ci\
+rules:\
+  - apiGroups: ["", "extensions", "apps", "batch", "events", "certmanager.k8s.io", "cert-manager.io", "monitoring.coreos.com", "networking.k8s.io"]\
+    resources: ["*"]\
+    verbs: ["*"]\
+\
+\
+[root@master-1.s061354.slurm.io /home/s061354]# cat role-binding.yaml\
+apiVersion: rbac.authorization.k8s.io/v1\
+kind: RoleBinding\
+metadata:\
+  name: kube-ci-bind\
+subjects:\
+- kind: ServiceAccount\
+  name: kube-ci\
+roleRef:\
+  kind: Role\
+  name: kube-ci\
+  apiGroup: rbac.authorization.k8s.io}
